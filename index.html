@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>I'm Sorry</title>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Poppins:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root{ --paper:#faf6f1; --ink:#3b2b2f; --muted:#7d6b6f; --rose:#d94f70; --rose-dark:#b83a5a; }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  html,body{width:100%;height:100%;min-height:100%;overflow:hidden;font-family:'Poppins',sans-serif;color:var(--ink);background:var(--paper)}
+  canvas#fx{position:fixed;inset:0;width:100%;height:100%;z-index:1;pointer-events:none}
+  .stage{
+    position:fixed;inset:0;z-index:2;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;text-align:center;
+    padding:max(24px,env(safe-area-inset-top)) 16px max(24px,env(safe-area-inset-bottom));
+    overflow-y:auto;
+    opacity:0;visibility:hidden;transition:opacity .9s ease,visibility .9s;
+  }
+  .stage.active{opacity:1;visibility:visible}
+  .card{
+    max-width:480px;width:100%;padding:clamp(24px,6vw,40px) clamp(18px,6vw,30px);border-radius:20px;background:#fffdfa;
+    border:1px solid #eadfd6;box-shadow:0 8px 30px rgba(80,50,40,.08);
+  }
+  h1.title{font-family:'Caveat',cursive;font-weight:700;font-size:clamp(40px,9vw,56px);color:var(--rose);line-height:1.1;margin-bottom:16px}
+  p.msg{font-size:clamp(16px,3.8vw,19px);font-weight:300;line-height:1.8;color:var(--ink);min-height:6.5em}
+  .btn{min-height:48px;border:none;cursor:pointer;font-family:inherit;font-weight:500;font-size:16px;padding:13px 34px;border-radius:999px;
+    transition:transform .25s ease,background .25s ease}
+  #yes{background:var(--rose);color:#fff;font-size:18px;padding:15px 42px}
+  #yes:hover{background:var(--rose-dark)}
+  #no{background:transparent;color:var(--muted);border:1px solid #d8cbc2;
+    transition:left .35s cubic-bezier(.34,1.56,.64,1),top .35s cubic-bezier(.34,1.56,.64,1),transform .3s}
+  #no.fly{position:fixed;z-index:50;background:#fffdfa}
+  .choices{display:flex;gap:20px;justify-content:center;align-items:center;margin-top:26px;flex-wrap:wrap;
+    opacity:0;transform:translateY(8px);transition:all .8s ease;pointer-events:none}
+  .choices.show{opacity:1;transform:none;pointer-events:auto}
+  #caption{margin-top:16px;min-height:1.5em;color:var(--muted);font-size:14px}
+  #stage-yes{justify-content:flex-start;padding-top:max(4vh,env(safe-area-inset-top));pointer-events:none}
+  #yesText{opacity:0;transform:translateY(16px);transition:opacity 1.2s cubic-bezier(.22,1,.36,1),transform 1.2s cubic-bezier(.22,1,.36,1)}
+  #yesText.show{opacity:1;transform:none}
+  #yesText h1{font-family:'Caveat',cursive;font-weight:700;font-size:clamp(40px,9vw,62px);color:var(--rose)}
+  #yesText p{font-weight:300;margin-top:4px;font-size:clamp(15px,3.6vw,18px);color:var(--muted)}
+  #apologyNote{max-width:440px;margin:10px auto 0;font-size:clamp(13px,3.5vw,16px);font-weight:300;line-height:1.5;color:var(--ink)}
+  #apologyNote p{margin:2px 0;animation:noteLine .8s cubic-bezier(.16,1,.3,1) both;will-change:opacity,transform}
+  @keyframes noteLine{from{opacity:0;transform:translate3d(0,8px,0)}to{opacity:1;transform:translate3d(0,0,0)}}
+  @media(max-width:480px){
+    .stage{padding-left:14px;padding-right:14px}
+    .card{border-radius:16px}
+    .choices{gap:12px;margin-top:20px}
+    .btn{padding:12px 24px}
+    #yes{padding:13px 32px}
+    #caption{font-size:13px}
+    #apologyNote{margin-top:8px;line-height:1.4}
+  }
+  @media(max-height:650px){
+    .stage{justify-content:flex-start}
+    #stage-ask{padding-top:max(16px,env(safe-area-inset-top))}
+    .card{padding-top:20px;padding-bottom:20px}
+    p.msg{line-height:1.55;min-height:0}
+    .choices{margin-top:14px}
+    #caption{margin-top:10px}
+  }
+  @media(prefers-reduced-motion:reduce){
+    *,*::before,*::after{scroll-behavior:auto!important;transition-duration:.01ms!important}
+  }
+</style>
+</head>
+<body>
+<canvas id="fx"></canvas>
+<audio id="music" loop preload="none" aria-hidden="true">
+  <source src="hareya.mp3" type="audio/mpeg">
+  Your browser does not support audio playback.
+</audio>
+
+<section class="stage active" id="stage-ask">
+  <div class="card">
+    <h1 class="title" id="title"></h1>
+    <p class="msg" id="msg"></p>
+    <div class="choices" id="choices">
+      <button class="btn" id="yes">Yes</button>
+      <button class="btn" id="no">No</button>
+    </div>
+    <div id="caption"></div>
+  </div>
+</section>
+
+<section class="stage" id="stage-yes">
+  <div id="yesText">
+    <h1>Thank you, <span id="nameB"></span></h1>
+    <p id="yesSub"></p>
+    <div id="apologyNote" aria-live="polite"></div>
+  </div>
+</section>
+
+<script>
+/* ============ CONFIG — EDIT THESE ============ */
+const CONFIG = {
+  herName: "Archana",
+  // Notifications go to this email via FormSubmit (free, no key needed)
+  notifyEmail: "subhranshunayak69@gmail.com",
+  title: "Archana, it was my fault",
+  message: "I said I would text you and I forgot. I'm really sorry. Will you please forgive me?",
+  noLines: [
+    "Are you sure?", "Please think again…", "I'm really sorry",
+    "Pretty please?", "The button is running away, just say yes",
+    "You can't catch it!", "I'll never forget again", "Last chance… say yes"
+  ],
+  yesSub: "I promise I won't forget again.",
+  apologyLines: [
+    "I should have texted you when I said I would.",
+    "I forgot, and I know that may have hurt you.",
+    "I'm truly sorry, Archana.",
+    "You mean so much to me.",
+    "I'll do better and keep my promises."
+  ],
+  apologyLineInterval: 1.8
+};
+/* ============================================= */
+
+const $ = id => document.getElementById(id);
+$('nameB').textContent = CONFIG.herName;
+$('title').textContent = CONFIG.title;
+
+/* ---------- music starts on the first screen tap/click ---------- */
+const music = $('music');
+async function startMusic(){
+  if (!music.paused) return;
+  try {
+    await music.play();
+    document.removeEventListener('pointerdown', startMusic);
+  } catch(err) {
+    console.error('Song could not be played:', err);
+  }
+}
+document.addEventListener('pointerdown', startMusic);
+
+/* ---------- canvas ---------- */
+const cv = $('fx'), ctx = cv.getContext('2d');
+let W, H, DPR, mode = 'float';
+function resize(){
+  DPR = Math.min(window.devicePixelRatio||1, 2);
+  W = innerWidth; H = innerHeight;
+  cv.width = W*DPR; cv.height = H*DPR; ctx.setTransform(DPR,0,0,DPR,0,0);
+  if (mode==='yes') buildTree();
+}
+addEventListener('resize', resize);
+
+function heartPath(x,y,s){
+  ctx.beginPath();
+  ctx.moveTo(x, y + s*0.35);
+  ctx.bezierCurveTo(x, y - s*0.1, x - s*0.6, y - s*0.1, x - s*0.6, y + s*0.3);
+  ctx.bezierCurveTo(x - s*0.6, y + s*0.7, x - s*0.1, y + s*0.85, x, y + s*1.05);
+  ctx.bezierCurveTo(x + s*0.1, y + s*0.85, x + s*0.6, y + s*0.7, x + s*0.6, y + s*0.3);
+  ctx.bezierCurveTo(x + s*0.6, y - s*0.1, x, y - s*0.1, x, y + s*0.35);
+  ctx.closePath();
+}
+const colors = ['#d94f70','#e8708a','#c93a5e','#f09aae','#e15b7a','#f4b3c1'];
+const rnd = (a,b)=>a+Math.random()*(b-a);
+
+let floaters = [];
+function spawnFloater(initial){
+  floaters.push({x:rnd(0,W), y:initial?rnd(0,H):H+30, s:rnd(8,18), v:rnd(.2,.6), sw:rnd(.5,1.4), ph:rnd(0,6.28),
+    c:colors[(Math.random()*colors.length)|0], a:rnd(.12,.3)});
+}
+
+let branches=[], tips=[], hearts=[], falling=[], leafPile=[], treeStart=0, bloomStart=0;
+let treeScale=1, fallSpeedScale=1, treeBaseX=0, treeBaseY=0, groundY=0;
+function buildTree(){
+  branches=[]; tips=[]; hearts=[];
+  const trunk=Math.min(H*0.12,110);
+  (function grow(x,y,ang,len,w,d){
+    const x2=x+Math.cos(ang)*len, y2=y+Math.sin(ang)*len;
+    branches.push({x,y,x2,y2,w,d});
+    if (d>=8){ tips.push({x:x2,y:y2}); return; }
+    const n=(d>2 && Math.random()<.25)?3:2;
+    for(let i=0;i<n;i++){
+      const spread = n===2 ? (i?1:-1)*rnd(.28,.55) : (i-1)*rnd(.4,.6);
+      grow(x2,y2,ang+spread,len*rnd(.74,.82),Math.max(w*.72,1),d+1);
+    }
+  })(0,0,-Math.PI/2,trunk,Math.min(16,W/30),0);
+  tips.forEach(t=>{
+    const k=4+((Math.random()*3)|0);
+    for(let i=0;i<k;i++) hearts.push({x:t.x+rnd(-26,26), y:t.y+rnd(-26,26), s:rnd(9,19),
+      c:colors[(Math.random()*colors.length)|0], delay:rnd(0,2600), rot:rnd(-.5,.5)});
+  });
+  let minX=0,maxX=0,minY=0,maxY=0;
+  for(const b of branches){
+    minX=Math.min(minX,b.x,b.x2); maxX=Math.max(maxX,b.x,b.x2);
+    minY=Math.min(minY,b.y,b.y2); maxY=Math.max(maxY,b.y,b.y2);
+  }
+  for(const h of hearts){
+    minX=Math.min(minX,h.x-26); maxX=Math.max(maxX,h.x+26);
+    minY=Math.min(minY,h.y-26); maxY=Math.max(maxY,h.y+26);
+  }
+  const treeWidth=Math.max(1,maxX-minX), treeHeight=Math.max(1,maxY-minY);
+  treeScale=Math.min(1.15,W*.94/treeWidth,H*.68/treeHeight);
+  fallSpeedScale=Math.min(1,W*.84/treeWidth,H*.61/treeHeight);
+  treeBaseX=W/2; treeBaseY=H*.76;
+  groundY=(H*.91-treeBaseY)/treeScale;
+}
+function startTree(){ mode='yes'; buildTree(); treeStart=performance.now(); bloomStart=treeStart+8*520+400; falling=[]; leafPile=[]; }
+
+let noteTimer, noteElapsed=0, lastNoteMusicTime=0;
+function startApologyNote(){
+  const note=$('apologyNote');
+  note.replaceChildren();
+  noteElapsed=0;
+  lastNoteMusicTime=music.currentTime||0;
+  let shown=0;
+  clearInterval(noteTimer);
+  noteTimer=setInterval(()=>{
+    const current=music.currentTime||0;
+    if(!music.paused){
+      if(current>=lastNoteMusicTime) noteElapsed+=current-lastNoteMusicTime;
+      else if(Number.isFinite(music.duration)) noteElapsed+=music.duration-lastNoteMusicTime+current;
+    }
+    lastNoteMusicTime=current;
+    const target=Math.min(CONFIG.apologyLines.length,
+      1+Math.floor(noteElapsed/CONFIG.apologyLineInterval));
+    while(shown<target){
+      const line=document.createElement('p');
+      line.textContent=CONFIG.apologyLines[shown++];
+      note.append(line);
+    }
+    if(shown===CONFIG.apologyLines.length) clearInterval(noteTimer);
+  },100);
+}
+
+function drawTree(now){
+  ctx.save();
+  ctx.translate(treeBaseX,treeBaseY);
+  ctx.scale(treeScale,treeScale);
+  const t = now - treeStart;
+  ctx.lineCap='round';
+  for (const b of branches){
+    const p = Math.min(Math.max((t-b.d*520)/620,0),1);
+    if (p<=0) continue;
+    ctx.strokeStyle = b.d<3 ? '#5a3a2a' : (b.d<6 ? '#76493a' : '#94604c');
+    ctx.lineWidth = b.w;
+    ctx.beginPath(); ctx.moveTo(b.x,b.y);
+    ctx.lineTo(b.x+(b.x2-b.x)*p, b.y+(b.y2-b.y)*p); ctx.stroke();
+  }
+  for(const leaf of leafPile){
+    ctx.save(); ctx.translate(leaf.x,leaf.y); ctx.rotate(leaf.rot);
+    ctx.fillStyle=leaf.c; heartPath(0,0,leaf.s); ctx.fill(); ctx.restore();
+  }
+  const bt = now - bloomStart;
+  if (bt>0){
+    for (const h of hearts){
+      const p = Math.min(Math.max((bt-h.delay)/700,0),1);
+      if (p<=0) continue;
+      const e = 1-Math.pow(1-p,3), sway = Math.sin(now/900+h.x)*1.5;
+      ctx.save(); ctx.translate(h.x+sway,h.y); ctx.rotate(h.rot);
+      ctx.fillStyle=h.c; heartPath(0,-h.s*e*.5,h.s*e); ctx.fill(); ctx.restore();
+    }
+    if (Math.random()<.5 && tips.length){
+      const t0 = tips[(Math.random()*tips.length)|0];
+      falling.push({x:t0.x+rnd(-20,20), y:t0.y+rnd(-10,20), s:rnd(8,18), v:rnd(.7,1.8), sw:rnd(.6,2), ph:rnd(0,6.28),
+        c:colors[(Math.random()*colors.length)|0], r:rnd(-.02,.02), rot:rnd(-.6,.6)});
+    }
+  }
+  for (let i=falling.length-1;i>=0;i--){
+    const f=falling[i];
+    f.y+=f.v*fallSpeedScale/treeScale; f.rot+=f.r;
+    f.x+=Math.sin(now/600*f.sw+f.ph)*.9*fallSpeedScale/treeScale;
+    if (f.y+f.s>=groundY){
+      if(leafPile.length<120){
+        const pileWidth=Math.min(W*.34/treeScale,45+leafPile.length*1.2);
+        const pileHeight=Math.min(55,8+leafPile.length*.35);
+        leafPile.push({x:rnd(-pileWidth,pileWidth),y:groundY-rnd(0,pileHeight)-f.s*1.05,
+          s:f.s,c:f.c,rot:f.rot});
+      }
+      falling.splice(i,1); continue;
+    }
+    ctx.save(); ctx.translate(f.x,f.y); ctx.rotate(f.rot);
+    ctx.fillStyle=f.c; heartPath(0,0,f.s); ctx.fill(); ctx.restore();
+  }
+  ctx.restore();
+}
+
+function loop(now){
+  ctx.clearRect(0,0,W,H);
+  if (floaters.length<(mode==='float'?30:12) && Math.random()<.05) spawnFloater(false);
+  for (let i=floaters.length-1;i>=0;i--){
+    const f=floaters[i];
+    f.y-=f.v; f.x+=Math.sin(now/1000*f.sw+f.ph)*.35;
+    if (f.y<-40){ floaters.splice(i,1); continue; }
+    ctx.save(); ctx.globalAlpha=f.a; ctx.fillStyle=f.c; heartPath(f.x,f.y,f.s); ctx.fill(); ctx.restore();
+  }
+  if (mode==='yes') drawTree(now);
+  requestAnimationFrame(loop);
+}
+resize();
+for (let i=0;i<18;i++) spawnFloater(true);
+requestAnimationFrame(loop);
+
+/* ---------- typed message ---------- */
+(function typeMsg(){
+  const el=$('msg'); let i=0;
+  setTimeout(function step(){
+    el.textContent = CONFIG.message.slice(0,++i);
+    if (i<CONFIG.message.length) setTimeout(step,45);
+    else setTimeout(()=>$('choices').classList.add('show'),400);
+  },900);
+})();
+
+/* ---------- dodging No ---------- */
+const no=$('no'), yes=$('yes'); let dodges=0;
+function dodge(e){
+  if (e && e.preventDefault) e.preventDefault();
+  dodges++;
+  const bw=no.offsetWidth||100, bh=no.offsetHeight||48, pad=12;
+  const yr=yes.getBoundingClientRect();
+  const maxX=Math.max(pad,W-bw-pad), maxY=Math.max(pad,H-bh-pad);
+  let x,y,tries=0;
+  do { x=rnd(pad,maxX); y=rnd(pad,maxY); tries++; }
+  while (tries<40 && x<yr.right+30 && x+bw>yr.left-30 && y<yr.bottom+30 && y+bh>yr.top-30);
+  no.classList.add('fly'); no.style.left=x+'px'; no.style.top=y+'px';
+  $('caption').textContent = CONFIG.noLines[Math.min(dodges-1,CONFIG.noLines.length-1)];
+  no.style.transform=`scale(${Math.max(.6,1-dodges*.05)})`;
+  yes.style.transform=`scale(${Math.min(1+dodges*.08,1.7)})`;
+}
+no.addEventListener('click',dodge);
+
+/* ---------- YES ---------- */
+let sent=false;
+yes.onclick=()=>{
+  document.querySelectorAll('.stage').forEach(s=>s.classList.remove('active'));
+  $('stage-yes').classList.add('active'); no.style.display='none';
+  floaters.length=0; startTree();
+  $('yesSub').textContent=CONFIG.yesSub;
+  setTimeout(()=>{
+    $('yesText').classList.add('show');
+    startApologyNote();
+  },6500);
+  notify();
+};
+async function notify(){
+  if (sent) return; sent=true;
+  if (!CONFIG.notifyEmail) return;
+  try {
+    await fetch('https://formsubmit.co/ajax/'+encodeURIComponent(CONFIG.notifyEmail),{
+      method:'POST',
+      headers:{'Content-Type':'application/json',Accept:'application/json'},
+      body:JSON.stringify({
+        _subject:`${CONFIG.herName} clicked YES!`,
+        _template:'box',
+        _captcha:'false',
+        name:'Apology Website',
+        message:`${CONFIG.herName} just clicked YES.\nTime: ${new Date().toLocaleString()}\nNo-button dodges before yes: ${dodges}`
+      })
+    });
+  } catch(err){ console.log('Notification failed',err); }
+}
+</script>
+</body>
+</html>
